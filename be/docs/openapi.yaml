@@ -1,0 +1,585 @@
+openapi: 3.1.0
+info:
+  title: HalalTrip Backend API
+  version: 1.0.0
+  description: >-
+    API HalalTrip untuk akun, preferensi, direktori tempat, perjalanan, itinerary,
+    dan proxy Travel Recommendation API. Skema CRUD destination eksternal sengaja
+    tidak didefinisikan karena backend meneruskan kontrak provider tanpa transformasi.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: Health
+  - name: Auth
+  - name: Users
+  - name: Recommendations
+  - name: Provider destinations
+  - name: Places
+  - name: Saved places
+  - name: Trips
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Proses API berjalan
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string, const: ok } }, required: [status] }
+              example: { status: ok }
+  /health/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe database
+      responses:
+        '200':
+          description: Database tersedia
+          content:
+            application/json:
+              schema: { type: object, properties: { status: { type: string }, dependencies: { type: object, properties: { database: { type: string } } } } }
+              example: { status: ready, dependencies: { database: available } }
+        '503':
+          $ref: '#/components/responses/NotReady'
+  /api/v1/health/recommendation-provider:
+    get:
+      tags: [Health]
+      summary: Periksa provider rekomendasi
+      responses:
+        '200': { description: Provider merespons; body diteruskan dari provider, schema opaque }
+        '502': { $ref: '#/components/responses/ProviderError' }
+        '504': { $ref: '#/components/responses/Timeout' }
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Daftarkan akun
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 100 }
+                email: { type: string, format: email, maxLength: 254 }
+                password: { type: string, minLength: 8, maxLength: 72 }
+            example: { name: Alya, email: alya@example.com, password: password-kuat }
+      responses:
+        '201':
+          description: Akun dibuat
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Masuk dan dapatkan access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [email, password], properties: { email: { type: string, format: email }, password: { type: string, minLength: 1 } } }
+            example: { email: alya@example.com, password: password-kuat }
+      responses:
+        '200':
+          description: Login berhasil
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/users/me:
+    get:
+      tags: [Users]
+      security: [{ bearerAuth: [] }]
+      summary: Baca profil akun aktif
+      responses:
+        '200':
+          description: Profil
+          content:
+            application/json:
+              schema: { type: object, properties: { user: { $ref: '#/components/schemas/User' } }, required: [user] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    patch:
+      tags: [Users]
+      security: [{ bearerAuth: [] }]
+      summary: Perbarui nama dan/atau email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, minProperties: 1, properties: { name: { type: string, minLength: 1, maxLength: 100 }, email: { type: string, format: email, maxLength: 254 } } }
+      responses:
+        '200':
+          description: Profil diperbarui
+          content:
+            application/json:
+              schema: { type: object, properties: { user: { $ref: '#/components/schemas/User' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/users/me/preferences:
+    get:
+      tags: [Users]
+      security: [{ bearerAuth: [] }]
+      summary: Baca preferensi perjalanan
+      responses:
+        '200':
+          description: Preferensi tersimpan
+          content:
+            application/json:
+              schema: { type: object, properties: { preferences: { $ref: '#/components/schemas/Preferences' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Users]
+      security: [{ bearerAuth: [] }]
+      summary: Simpan preferensi perjalanan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Preferences' }
+            example: { interests: [culture, culinary], activity: Exploration, travel_type: Solo }
+      responses:
+        '200':
+          description: Preferensi tersimpan
+          content:
+            application/json:
+              schema: { type: object, properties: { preferences: { $ref: '#/components/schemas/Preferences' } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/recommendations/cities:
+    post:
+      tags: [Recommendations]
+      security: [{ bearerAuth: [] }, {}]
+      summary: Minta rekomendasi kota dari provider
+      description: Bearer token opsional; preferensi tersimpan hanya dipakai bila ketiga field preferensi tidak dikirim.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecommendationRequest' }
+      responses:
+        '200': { description: JSON provider diteruskan; schema response provider opaque }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '502': { $ref: '#/components/responses/ProviderError' }
+        '504': { $ref: '#/components/responses/Timeout' }
+  /api/v1/recommendations/destinations:
+    post:
+      tags: [Recommendations]
+      security: [{ bearerAuth: [] }, {}]
+      summary: Minta rekomendasi destinasi dari provider
+      description: Bearer token opsional. Request memerlukan city; response sukses diteruskan tanpa transformasi.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/RecommendationRequest'
+                - type: object
+                  required: [city]
+                  properties:
+                    city: { type: string, minLength: 1 }
+      responses:
+        '200': { description: JSON provider diteruskan; schema response provider opaque }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '502': { $ref: '#/components/responses/ProviderError' }
+        '504': { $ref: '#/components/responses/Timeout' }
+  /api/v1/destinations:
+    get:
+      tags: [Provider destinations]
+      summary: Daftar destination milik provider
+      responses:
+        '200': { description: Body JSON provider diteruskan apa adanya; schema opaque }
+        '502': { $ref: '#/components/responses/ProviderError' }
+        '504': { $ref: '#/components/responses/Timeout' }
+    post:
+      tags: [Provider destinations]
+      summary: Buat destination di provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true, description: Kontrak mengikuti provider; field tidak ditentukan backend. }
+      responses:
+        '2XX': { description: Response sukses provider diteruskan; status/body mengikuti provider }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '502': { $ref: '#/components/responses/ProviderError' }
+        '504': { $ref: '#/components/responses/Timeout' }
+  /api/v1/destinations/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/ProviderID' }
+    get:
+      tags: [Provider destinations]
+      summary: Baca destination provider
+      responses:
+        '200': { description: JSON provider diteruskan; schema opaque }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '502': { $ref: '#/components/responses/ProviderError' }
+        '504': { $ref: '#/components/responses/Timeout' }
+    put:
+      tags: [Provider destinations]
+      summary: Perbarui destination provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true, description: Kontrak mengikuti provider; field tidak ditentukan backend. }
+      responses:
+        '2XX': { description: Response sukses provider diteruskan; status/body mengikuti provider }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '502': { $ref: '#/components/responses/ProviderError' }
+        '504': { $ref: '#/components/responses/Timeout' }
+    delete:
+      tags: [Provider destinations]
+      summary: Hapus destination provider
+      responses:
+        '2XX': { description: Response sukses provider diteruskan }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '502': { $ref: '#/components/responses/ProviderError' }
+        '504': { $ref: '#/components/responses/Timeout' }
+  /api/v1/restaurants:
+    get:
+      tags: [Places]
+      summary: Cari restoran lokal
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PageSize' }, { $ref: '#/components/parameters/Q' }, { $ref: '#/components/parameters/City' }, { $ref: '#/components/parameters/Country' }, { name: cuisine, in: query, schema: { type: string } }, { name: halal_status, in: query, schema: { type: string, enum: [certified, muslim_owned, halal_friendly, no_pork, unknown] } }, { name: price_range, in: query, schema: { type: string } }, { $ref: '#/components/parameters/Sort' }, { $ref: '#/components/parameters/Order' }]
+      responses: { '200': { $ref: '#/components/responses/PlaceList' }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } }
+    post: { $ref: '#/components/pathItems/adminPlacePost' }
+  /api/v1/restaurants/{id}:
+    parameters: [{ $ref: '#/components/parameters/UUID' }]
+    get: { $ref: '#/components/pathItems/getPlace' }
+    put: { $ref: '#/components/pathItems/adminPlacePut' }
+    delete: { $ref: '#/components/pathItems/adminPlaceDelete' }
+  /api/v1/mosques:
+    get:
+      tags: [Places]
+      summary: Cari masjid dan fasilitas salat lokal
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PageSize' }, { $ref: '#/components/parameters/Q' }, { $ref: '#/components/parameters/City' }, { $ref: '#/components/parameters/Country' }, { name: facility, in: query, schema: { type: string } }, { $ref: '#/components/parameters/Sort' }, { $ref: '#/components/parameters/Order' }]
+      responses: { '200': { $ref: '#/components/responses/PlaceList' }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } }
+    post: { $ref: '#/components/pathItems/adminPlacePost' }
+  /api/v1/mosques/{id}:
+    parameters: [{ $ref: '#/components/parameters/UUID' }]
+    get: { $ref: '#/components/pathItems/getPlace' }
+    put: { $ref: '#/components/pathItems/adminPlacePut' }
+    delete: { $ref: '#/components/pathItems/adminPlaceDelete' }
+  /api/v1/hotels:
+    get:
+      tags: [Places]
+      summary: Cari hotel lokal
+      parameters: [{ $ref: '#/components/parameters/Page' }, { $ref: '#/components/parameters/PageSize' }, { $ref: '#/components/parameters/Q' }, { $ref: '#/components/parameters/City' }, { $ref: '#/components/parameters/Country' }, { name: price_range, in: query, schema: { type: string } }, { name: feature, in: query, schema: { type: string } }, { $ref: '#/components/parameters/Sort' }, { $ref: '#/components/parameters/Order' }]
+      responses: { '200': { $ref: '#/components/responses/PlaceList' }, '400': { $ref: '#/components/responses/BadRequest' }, '500': { $ref: '#/components/responses/InternalError' } }
+    post: { $ref: '#/components/pathItems/adminPlacePost' }
+  /api/v1/hotels/{id}:
+    parameters: [{ $ref: '#/components/parameters/UUID' }]
+    get: { $ref: '#/components/pathItems/getPlace' }
+    put: { $ref: '#/components/pathItems/adminPlacePut' }
+    delete: { $ref: '#/components/pathItems/adminPlaceDelete' }
+  /api/v1/saved-places:
+    get:
+      tags: [Saved places]
+      security: [{ bearerAuth: [] }]
+      summary: Daftar tempat tersimpan milik pengguna
+      responses:
+        '200':
+          description: Daftar saved place beserta data tempat yang masih ada
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/SavedPlace' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [Saved places]
+      security: [{ bearerAuth: [] }]
+      summary: Simpan referensi tempat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [place_type, place_id], properties: { place_type: { type: string, enum: [restaurant, mosque, hotel] }, place_id: { type: string, format: uuid } } }
+      responses:
+        '201':
+          description: Referensi tempat berhasil disimpan
+          content:
+            application/json:
+              schema: { type: object, required: [place_type, place_id], properties: { place_type: { type: string }, place_id: { type: string, format: uuid } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /api/v1/saved-places/{place_type}/{place_id}:
+    delete:
+      tags: [Saved places]
+      security: [{ bearerAuth: [] }]
+      summary: Hapus saved place
+      parameters:
+        - { name: place_type, in: path, required: true, schema: { type: string, enum: [restaurant, mosque, hotel] } }
+        - { name: place_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses: { '204': { description: Saved place dihapus }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/trips:
+    post:
+      tags: [Trips]
+      security: [{ bearerAuth: [] }]
+      summary: Buat trip
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TripInput' }
+            example: { title: Liburan Yogyakarta, start_date: '2030-05-01', end_date: '2030-05-03', origin: Jakarta, status: planning }
+      responses: { '201': { $ref: '#/components/responses/TripResult' }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '500': { $ref: '#/components/responses/InternalError' } }
+    get:
+      tags: [Trips]
+      security: [{ bearerAuth: [] }]
+      summary: Daftar trip milik pengguna
+      responses: { '200': { $ref: '#/components/responses/TripList' }, '401': { $ref: '#/components/responses/Unauthorized' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/trips/{tripId}:
+    parameters: [{ $ref: '#/components/parameters/TripID' }]
+    get:
+      tags: [Trips]
+      security: [{ bearerAuth: [] }]
+      summary: Baca trip milik pengguna
+      responses: { '200': { $ref: '#/components/responses/TripResult' }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' } }
+    patch:
+      tags: [Trips]
+      security: [{ bearerAuth: [] }]
+      summary: Perbarui sebagian data trip
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TripPatch' }
+      responses: { '200': { $ref: '#/components/responses/TripResult' }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } }
+    delete:
+      tags: [Trips]
+      security: [{ bearerAuth: [] }]
+      summary: Hapus trip dan item itinerary
+      responses: { '204': { description: Trip dihapus }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/trips/{tripId}/itinerary-items:
+    parameters: [{ $ref: '#/components/parameters/TripID' }]
+    post:
+      tags: [Trips]
+      security: [{ bearerAuth: [] }]
+      summary: Tambahkan item itinerary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ItineraryInput' }
+      responses: { '201': { $ref: '#/components/responses/ItineraryResult' }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } }
+    get:
+      tags: [Trips]
+      security: [{ bearerAuth: [] }]
+      summary: Daftar item itinerary
+      responses: { '200': { $ref: '#/components/responses/ItineraryList' }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/trips/{tripId}/itinerary-items/order:
+    put:
+      tags: [Trips]
+      security: [{ bearerAuth: [] }]
+      summary: Atur ulang seluruh item itinerary
+      description: item_ids harus memuat semua ID item trip tepat satu kali.
+      parameters: [{ $ref: '#/components/parameters/TripID' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [item_ids], properties: { item_ids: { type: array, items: { type: string, format: uuid } } } }
+            example: { item_ids: ['00000000-0000-4000-8000-000000000001'] }
+      responses: { '204': { description: Urutan tersimpan }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } }
+  /api/v1/trips/{tripId}/itinerary-items/{itemId}:
+    parameters: [{ $ref: '#/components/parameters/TripID' }, { $ref: '#/components/parameters/ItemID' }]
+    patch:
+      tags: [Trips]
+      security: [{ bearerAuth: [] }]
+      summary: Perbarui sebagian item itinerary
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ItineraryPatch' }
+      responses: { '200': { $ref: '#/components/responses/ItineraryResult' }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } }
+    delete:
+      tags: [Trips]
+      security: [{ bearerAuth: [] }]
+      summary: Hapus item itinerary
+      responses: { '204': { description: Item dihapus }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '404': { $ref: '#/components/responses/NotFound' } }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    UUID: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+    ProviderID: { name: id, in: path, required: true, description: ID opaque dari provider, schema: { type: string } }
+    TripID: { name: tripId, in: path, required: true, schema: { type: string, format: uuid } }
+    ItemID: { name: itemId, in: path, required: true, schema: { type: string, format: uuid } }
+    Page: { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+    PageSize: { name: page_size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+    Q: { name: q, in: query, schema: { type: string } }
+    City: { name: city, in: query, schema: { type: string } }
+    Country: { name: country, in: query, schema: { type: string } }
+    Sort: { name: sort, in: query, schema: { type: string, enum: [name, city, created_at, updated_at], default: name } }
+    Order: { name: order, in: query, schema: { type: string, enum: [asc, desc], default: asc } }
+  pathItems:
+    adminPlacePost:
+      post:
+        tags: [Places]
+        security: [{ bearerAuth: [] }]
+        summary: Buat entri direktori (admin)
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlaceInput' }
+        responses: { '201': { $ref: '#/components/responses/PlaceResult' }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '500': { $ref: '#/components/responses/InternalError' } }
+    getPlace:
+      get:
+        tags: [Places]
+        summary: Baca entri direktori
+        responses: { '200': { $ref: '#/components/responses/PlaceResult' }, '400': { $ref: '#/components/responses/BadRequest' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } }
+    adminPlacePut:
+      put:
+        tags: [Places]
+        security: [{ bearerAuth: [] }]
+        summary: Ganti entri direktori (admin)
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlaceInput' }
+        responses: { '200': { $ref: '#/components/responses/PlaceResult' }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } }
+    adminPlaceDelete:
+      delete:
+        tags: [Places]
+        security: [{ bearerAuth: [] }]
+        summary: Hapus entri direktori (admin)
+        responses: { '204': { description: Entri dihapus }, '400': { $ref: '#/components/responses/BadRequest' }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' }, '500': { $ref: '#/components/responses/InternalError' } }
+  responses:
+    BadRequest:
+      description: Input tidak valid
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Token tidak ada/tidak valid atau kredensial salah
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Role admin diperlukan
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource tidak ditemukan
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Konflik data
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalError:
+      description: Kesalahan internal
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotReady:
+      description: Database tidak siap
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status: { type: string }
+              dependencies: { type: object }
+    ProviderError:
+      description: Provider gagal; detail provider disamarkan
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Timeout:
+      description: Provider melewati batas waktu
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PlaceResult:
+      description: Satu entri direktori
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: '#/components/schemas/Place' }
+    PlaceList:
+      description: Halaman direktori
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { type: array, items: { $ref: '#/components/schemas/Place' } }
+              pagination: { $ref: '#/components/schemas/Pagination' }
+    TripResult:
+      description: Satu trip
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: '#/components/schemas/Trip' }
+    TripList:
+      description: Daftar trip pengguna
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { type: array, items: { $ref: '#/components/schemas/Trip' } }
+    ItineraryResult:
+      description: Satu item itinerary
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: '#/components/schemas/ItineraryItem' }
+    ItineraryList:
+      description: Daftar item itinerary
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { type: array, items: { $ref: '#/components/schemas/ItineraryItem' } }
+  schemas:
+    Error: { type: object, properties: { error: { type: object, required: [code, message], properties: { code: { type: string }, message: { type: string } } } }, required: [error] }
+    User: { type: object, required: [id, name, email, created_at, updated_at], properties: { id: { type: string, format: uuid }, name: { type: string }, email: { type: string, format: email }, created_at: { type: string, format: date-time }, updated_at: { type: string, format: date-time } } }
+    AuthResponse: { type: object, required: [user, access_token, token_type, expires_in], properties: { user: { $ref: '#/components/schemas/User' }, access_token: { type: string }, token_type: { type: string, const: Bearer }, expires_in: { type: integer, description: Detik } } }
+    Preferences: { type: object, required: [interests, activity, travel_type], properties: { interests: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [culinary, culture, nature, shopping, adventure, history] } }, activity: { type: string, enum: [Relaxing, Exploration, Adventure] }, travel_type: { type: string, enum: [Solo, Couple, Family, Friends] } } }
+    RecommendationRequest: { type: object, properties: { interests: { type: array, minItems: 1, items: { type: string, enum: [culinary, culture, nature, shopping, adventure, history] } }, activity: { type: string, enum: [Relaxing, Exploration, Adventure] }, travel_type: { type: string, enum: [Solo, Couple, Family, Friends] }, top_n: { type: integer, minimum: 1, maximum: 100 } }, description: Ketiga field preferensi boleh tidak dikirim bersama jika preferensi tersimpan dapat digunakan dari bearer token; jika satu field dikirim, kirim ketiganya. }
+    PlaceInput: { type: object, required: [name, city, country], properties: { name: { type: string }, description: { type: string }, city: { type: string }, country: { type: string }, address: { type: string }, latitude: { type: number, minimum: -90, maximum: 90 }, longitude: { type: number, minimum: -180, maximum: 180 }, cuisine: { type: string }, price_range: { type: string }, halal_status: { type: string, enum: [certified, muslim_owned, halal_friendly, no_pork, unknown] }, halal_verification_note: { type: string }, facilities: { type: array, items: { type: string } }, muslim_friendly_features: { type: array, items: { $ref: '#/components/schemas/HotelFeature' } }, source_url: { type: string, format: uri } } }
+    HotelFeature: { type: object, required: [name, verified], properties: { name: { type: string }, verified: { type: boolean }, verification_note: { type: string } } }
+    Place: { allOf: [{ $ref: '#/components/schemas/PlaceInput' }, { type: object, required: [id], properties: { id: { type: string, format: uuid }, created_at: { type: string, format: date-time }, updated_at: { type: string, format: date-time } } }] }
+    Pagination: { type: object, properties: { page: { type: integer }, page_size: { type: integer }, total: { type: integer }, total_pages: { type: integer } } }
+    SavedPlace: { type: object, required: [place_type, place, saved_at], properties: { place_type: { type: string, enum: [restaurant, mosque, hotel] }, place: { $ref: '#/components/schemas/Place' }, saved_at: { type: string, format: date-time } } }
+    TripInput: { type: object, required: [title, start_date, end_date], properties: { title: { type: string, minLength: 1, maxLength: 160 }, start_date: { type: string, format: date }, end_date: { type: string, format: date }, origin: { type: string }, notes: { type: string }, status: { type: string, enum: [planning, active, completed, cancelled] } } }
+    TripPatch: { type: object, minProperties: 1, properties: { title: { type: string, minLength: 1, maxLength: 160 }, start_date: { type: string, format: date }, end_date: { type: string, format: date }, origin: { type: string }, notes: { type: string }, status: { type: string, enum: [planning, active, completed, cancelled] } } }
+    Trip: { allOf: [{ $ref: '#/components/schemas/TripInput' }, { type: object, required: [id, status], properties: { id: { type: string, format: uuid }, created_at: { type: string, format: date-time }, updated_at: { type: string, format: date-time } } }] }
+    ItineraryInput: { type: object, required: [title, place_type], properties: { title: { type: string, minLength: 1, maxLength: 200 }, description: { type: string }, place_type: { type: string, enum: [destination, restaurant, mosque, hotel, custom_activity] }, external_place_id: { type: string, description: ID opaque dari provider atau sumber tempat }, scheduled_date: { type: string, format: date }, start_time: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$' }, end_time: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$' }, transport_mode: { type: string }, notes: { type: string } } }
+    ItineraryPatch: { type: object, minProperties: 1, properties: { title: { type: string }, description: { type: string }, place_type: { type: string, enum: [destination, restaurant, mosque, hotel, custom_activity] }, external_place_id: { type: string }, scheduled_date: { type: string, format: date }, start_time: { type: string }, end_time: { type: string }, transport_mode: { type: string }, notes: { type: string } } }
+    ItineraryItem: { allOf: [{ $ref: '#/components/schemas/ItineraryInput' }, { type: object, required: [id, trip_id, sequence], properties: { id: { type: string, format: uuid }, trip_id: { type: string, format: uuid }, sequence: { type: integer, minimum: 1 }, created_at: { type: string, format: date-time }, updated_at: { type: string, format: date-time } } }] }
