@@ -14,6 +14,7 @@ export interface Place {
   image_license_url?: string;
   score?: number;
   rating?: number;
+  review_count?: number;
   cuisine?: string;
   price_range?: string;
   halal_status?: "certified" | "muslim_owned" | "halal_friendly" | "no_pork" | "unknown";

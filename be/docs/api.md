@@ -2,6 +2,8 @@
 
 Semua endpoint internal berada di prefix `/api/v1`. Endpoint provider berada di root base URL eksternal. Backend meneruskan JSON response provider tanpa mengubah bentuknya.
 
+Kontrak rekomendasi mengikuti [README resmi provider](https://github.com/blasphemous20/travel-recommendation-api), dengan Swagger provider tersedia di [docs deployment](https://travel-recommendation-api-production-75f5.up.railway.app/docs).
+
 ## Health dan rekomendasi
 
 ### `GET /api/v1/health/recommendation-provider`
@@ -20,11 +22,13 @@ Request:
 
     {"city":"Yogyakarta","interests":["culture","history"],"activity":"Exploration","travel_type":"Solo","top_n":5}
 
-`interests` berisi minimal satu dari `culinary`, `culture`, `nature`, `shopping`, `adventure`, `history`. `activity`: `Relaxing`, `Exploration`, `Adventure`. `travel_type`: `Solo`, `Couple`, `Family`, `Friends`. `city` wajib pada rekomendasi destinasi. `top_n` opsional dengan batas lokal backend 1–100; batas provider belum dapat diverifikasi karena Swagger tidak dapat dijangkau ketika implementasi.
+`interests` berisi minimal satu dari `culinary`, `culture`, `nature`, `shopping`, `adventure`, `history`. `activity`: `Relaxing`, `Exploration`, `Adventure`. `travel_type`: `Solo`, `Couple`, `Family`, `Friends`. `city` wajib pada rekomendasi destinasi. `top_n` opsional; backend membatasi nilainya ke 1–100 sebelum meneruskan request.
 
-Contoh response yang diteruskan:
+Contoh response rekomendasi kota yang diteruskan:
 
-    {"recommendations":[]}
+    {"recommendations":[{"city":"Yogyakarta","country":"Indonesia","score":85.51}]}
+
+Response rekomendasi destinasi dapat memuat `name`, `city`, `country`, `rating`, `review_count`, dan `score` di dalam array `recommendations`.
 
 Array kosong adalah hasil rekomendasi yang valid. Response aktual mengikuti kontrak provider dan tidak dibungkus envelope baru.
 

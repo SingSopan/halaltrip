@@ -13,7 +13,7 @@ Dari direktori `be/`, jalankan migration dan backend:
 
     go install github.com/pressly/goose/v3/cmd/goose@v3.24.1
     $env:DATABASE_URL = "postgres://postgres:PASSWORD_ANDA@localhost:5432/halaltrip?sslmode=disable"
-    goose -dir migrations postgres "$env:DATABASE_URL" up
+    goose -dir migrations postgres "$env:DAT  ABASE_URL" up
     go run ./cmd/api
 
 ## Authentication dan profil

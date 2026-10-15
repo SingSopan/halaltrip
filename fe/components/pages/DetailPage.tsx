@@ -33,7 +33,7 @@ export function Detail({ kind, slug }: { kind: string; slug: string }) {
     <div className="detail-grid"><main className="detail-main">
       {place.description && <section className="content-section"><div className="eyebrow">TENTANG TEMPAT INI</div><h2>{place.name}</h2><p>{place.description}</p></section>}
       {place.image_attribution && <p className="image-credit">Kredit foto: {place.image_attribution}{place.image_license_url && <> · <a href={place.image_license_url} target="_blank" rel="noreferrer">Lihat lisensi</a></>}</p>}
-      <section className="content-section"><div className="eyebrow">INFORMASI DARI BACKEND</div><h2>Detail tempat</h2>
+      <section className="content-section"><h2>Detail tempat</h2>
         <dl className="fact-grid">
           {place.city && <div><dt>Kota</dt><dd>{place.city}</dd></div>}{place.country && <div><dt>Negara</dt><dd>{place.country}</dd></div>}
           {place.cuisine && <div><dt>Jenis kuliner</dt><dd>{place.cuisine}</dd></div>}{place.price_range && <div><dt>Kisaran harga</dt><dd>{place.price_range}</dd></div>}

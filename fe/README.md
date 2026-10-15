@@ -46,7 +46,7 @@ Backend saat ini mengembalikan access token JWT di JSON dan belum menyediakan co
 ## Fitur yang belum terhubung / batas API
 
 - CRUD direktori `POST/PUT/DELETE` tersedia di backend untuk admin, tetapi belum ada UI administrasi.
-- Kontrak JSON provider destinasi/rekomendasi bersifat opaque di dokumentasi backend dan Swagger provider tidak dapat diverifikasi ketika integrasi dibuat. Normalizer frontend menangani bentuk umum seperti array dan envelope `data`/`recommendations`; jika provider mengirim nama field lain, data tersebut memerlukan pemetaan eksplisit. Kegagalan atau bentuk respons yang tidak dikenali ditampilkan sebagai error, bukan diganti data mock.
+- Rekomendasi mengikuti kontrak di [README provider](https://github.com/blasphemous20/travel-recommendation-api): `/recommend/cities` mengirim daftar `{ city, country, score }`, dan `/recommend/destinations` mengirim destinasi yang dapat berisi `name`, `city`, `country`, `rating`, `review_count`, dan `score`. Planner memilih kota dahulu dari dropdown katalog/populer, lalu mengirim preferensi beserta kota tersebut ke rekomendasi destinasi; hasilnya digabung dengan katalog lokal untuk membuat draf itinerary. Field tambahan yang tidak dikenal diabaikan.
 - Saved places backend tidak mencakup destination provider.
 - Backend tidak menyediakan peta, geocoding, atau kalkulasi rute. Tampilan peta dekoratif yang belum terhubung ke data lokasi tidak digunakan sebagai sumber hasil.
 - Backend belum mendukung cookie sesi; untuk sesi persisten yang lebih aman diperlukan perubahan backend terencana untuk cookie `HttpOnly`, `Secure` di production, `SameSite`, dan dukungan credentialed CORS.

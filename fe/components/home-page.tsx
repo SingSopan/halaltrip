@@ -165,12 +165,13 @@ export function HomePage() {
               <div className="field-label">DESTINATION</div>
               <div className="destination-input">
                 <Compass size={17} />
-                <input
+                <select
                   value={plannerCity}
                   onChange={(e) => setPlannerCity(e.target.value)}
-                  placeholder="Contoh: Jakarta"
                   aria-label="Kota tujuan perjalanan"
-                />
+                >
+                  {["Jakarta", "Yogyakarta", "Medan", "Kuala Lumpur", "Bangkok"].map((city) => <option key={city} value={city}>{city}</option>)}
+                </select>
                 <ChevronDown size={16} />
               </div>
 

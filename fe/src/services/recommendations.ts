@@ -3,7 +3,7 @@ import type { Activity, Interest, TravelType } from "@/src/types/api";
 import type { Place } from "@/src/types/place";
 
 export type RecommendationInput = { interests: Interest[]; activity: Activity; travel_type: TravelType; top_n?: number };
-export type RecommendationOption = { key: string; label: string; providerId?: string; score?: number; description?: string; raw: unknown };
+export type RecommendationOption = { key: string; label: string; country?: string; providerId?: string; score?: number; description?: string; raw: unknown };
 
 function object(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
@@ -48,6 +48,7 @@ export function normalizeOptions(payload: unknown, labelKeys: string[]): Recomme
     return [{
       key: stringField(record, ["id", "slug", "city_id", "destination_id"]) ?? `${label}-${index}`,
       label,
+      country: stringField(record, ["country", "country_name"]),
       providerId: stringField(record, ["id", "destination_id", "place_id", "slug"]),
       score: scoreField(record),
       description: stringField(record, ["description", "summary", "reason"]),
@@ -76,6 +77,7 @@ export function normalizeProviderDestination(raw: unknown): Place | undefined {
     image: stringField(record, ["image_url", "image", "photo_url", "thumbnail"]),
     score: scoreField(record),
     rating: typeof record.rating === "number" ? record.rating : undefined,
+    review_count: typeof record.review_count === "number" ? record.review_count : undefined,
     category: "Destination",
     source: "provider",
   };
